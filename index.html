@@ -60,6 +60,7 @@
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: 'imperial' }), 'bottom-right');
 
     // Color states by the 2024 result. Values include "Dem", "Rep" and
     // pickups ("Rep Pickup"), so we test the leading 3 characters.
