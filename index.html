@@ -77,6 +77,13 @@
         generateId: true            // gives features ids so hover state works
       });
 
+      // One label point per state (centroid of each state's largest part),
+      // so multi-part states don't get a label on every island/peninsula.
+      map.addSource('state-labels', {
+        type: 'geojson',
+        data: './states-labels.geojson'
+      });
+
       // Fill layer (the polygons)
       map.addLayer({
         id: 'states-fill',
@@ -102,7 +109,7 @@
       map.addLayer({
         id: 'states-labels',
         type: 'symbol',
-        source: 'states',
+        source: 'state-labels',
         layout: {
           'text-field': ['get', 'STATE_ABBR'],
           'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
