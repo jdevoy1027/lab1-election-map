@@ -99,6 +99,24 @@
         paint: { 'line-color': '#ffffff', 'line-width': 1 }
       });
 
+      // State abbreviation labels, one per polygon (placed at the feature's center).
+      map.addLayer({
+        id: 'states-labels',
+        type: 'symbol',
+        source: 'states',
+        layout: {
+          'text-field': ['get', 'STATE_ABBR'],
+          'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 6, 16],
+          'text-allow-overlap': false
+        },
+        paint: {
+          'text-color': '#1a1a2e',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1.4
+        }
+      });
+
       // Fit the map to the data once it has loaded.
       map.on('sourcedata', function fit(e) {
         if (e.sourceId !== 'states' || !e.isSourceLoaded) return;
