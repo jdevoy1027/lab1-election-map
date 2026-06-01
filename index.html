@@ -204,7 +204,15 @@
         id: 'nc-fill',
         type: 'fill',
         source: 'nc',
-        paint: { 'fill-color': hvColor, 'fill-opacity': 0.85 }
+        paint: { 'fill-color': hvColor, 'fill-opacity': 0.5 }
+      });
+
+      // Thin black outline around every NC polygon.
+      map.addLayer({
+        id: 'nc-outline',
+        type: 'line',
+        source: 'nc',
+        paint: { 'line-color': '#000000', 'line-width': 0.5 }
       });
 
       // State abbreviation labels, one per polygon (placed at the feature's center).
@@ -317,7 +325,7 @@
         states: ['states-fill', 'states-outline'],
         labels: ['states-labels'],
         cities: ['cities-circles', 'cities-labels'],
-        nc: ['nc-fill']
+        nc: ['nc-fill', 'nc-outline']
       };
       document.querySelectorAll('#layers input').forEach((cb) => {
         cb.addEventListener('change', () => {
