@@ -60,6 +60,11 @@
     #legend h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #555; }
     #legend .row { display: flex; align-items: center; margin: 3px 0; }
     #legend .swatch { width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; border: 1px solid rgba(0,0,0,.2); }
+    #legend .grad {
+      height: 12px; width: 160px; border-radius: 3px; border: 1px solid rgba(0,0,0,.2);
+      background: linear-gradient(to right, #ffffcc, #a1dab4, #41b6c4, #2c7fb8, #253494);
+    }
+    #legend .grad-labels { display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-top: 2px; }
 
     /* Popup attribute table */
     .mapboxgl-popup-content {
@@ -86,6 +91,7 @@
       <label><input type="checkbox" data-group="states" checked> State results</label>
       <label><input type="checkbox" data-group="labels" checked> State labels</label>
       <label><input type="checkbox" data-group="cities" checked> Cities</label>
+      <label><input type="checkbox" data-group="nc" checked> NC avg home value</label>
     </div>
   </div>
 
@@ -94,6 +100,11 @@
     <div class="row"><span class="swatch" style="background:#3b6fb6"></span>Democratic</div>
     <div class="row"><span class="swatch" style="background:#c0392b"></span>Republican</div>
     <div class="row" style="margin-top:8px"><span class="swatch" style="background:#f1c40f;border-radius:50%"></span>City</div>
+    <div id="nc-legend">
+      <h4 style="margin-top:10px">NC Avg Home Value</h4>
+      <div class="grad"></div>
+      <div class="grad-labels"><span>$100k</span><span>$520k+</span></div>
+    </div>
   </div>
 
   <script>
@@ -150,6 +161,13 @@
         data: './cities2020.geojson'
       });
 
+      // North Carolina block groups (simplified) from the third geodatabase,
+      // for a choropleth of average home value.
+      map.addSource('nc', {
+        type: 'geojson',
+        data: './nc_homevalue.geojson'
+      });
+
       // Fill layer (the polygons)
       map.addLayer({
         id: 'states-fill',
@@ -169,6 +187,25 @@
         type: 'line',
         source: 'states',
         paint: { 'line-color': '#ffffff', 'line-width': 1 }
+      });
+
+      // NC average home value choropleth (YlGnBu ramp; breaks ~ NC percentiles).
+      // null / non-positive values render gray.
+      const hvColor = [
+        'let', 'v', ['number', ['get', 'F2021AverageHomeValue'], 0],
+        ['case', ['<=', ['var', 'v'], 0], '#dddddd',
+          ['interpolate', ['linear'], ['var', 'v'],
+            100000, '#ffffcc',
+            160000, '#a1dab4',
+            225000, '#41b6c4',
+            315000, '#2c7fb8',
+            520000, '#253494']]
+      ];
+      map.addLayer({
+        id: 'nc-fill',
+        type: 'fill',
+        source: 'nc',
+        paint: { 'fill-color': hvColor, 'fill-opacity': 0.85 }
       });
 
       // State abbreviation labels, one per polygon (placed at the feature's center).
@@ -265,17 +302,32 @@
       map.on('mouseenter', 'cities-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', 'cities-circles', () => { map.getCanvas().style.cursor = ''; });
 
-      // ── 6. Layer control panel toggles ─────────────────────────────────────
+      // ── 6. NC block-group popups ───────────────────────────────────────────
+      map.on('click', 'nc-fill', (e) => {
+        const p = e.features[0].properties;
+        new mapboxgl.Popup({ maxWidth: '320px' })
+          .setLngLat(e.lngLat)
+          .setHTML(ncPopupHTML(p))
+          .addTo(map);
+      });
+      map.on('mouseenter', 'nc-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'nc-fill', () => { map.getCanvas().style.cursor = ''; });
+
+      // ── 7. Layer control panel toggles ─────────────────────────────────────
       const LAYER_GROUPS = {
         states: ['states-fill', 'states-outline'],
         labels: ['states-labels'],
-        cities: ['cities-circles', 'cities-labels']
+        cities: ['cities-circles', 'cities-labels'],
+        nc: ['nc-fill']
       };
       document.querySelectorAll('#layers input').forEach((cb) => {
         cb.addEventListener('change', () => {
           const vis = cb.checked ? 'visible' : 'none';
           LAYER_GROUPS[cb.dataset.group].forEach((id) =>
             map.setLayoutProperty(id, 'visibility', vis));
+          // The NC choropleth has its own legend section — show/hide it in sync.
+          if (cb.dataset.group === 'nc')
+            document.getElementById('nc-legend').style.display = cb.checked ? '' : 'none';
         });
       });
     });
@@ -316,6 +368,21 @@
         return `<tr><td class="k">${lab}</td><td class="v">${v ?? '—'}</td></tr>`;
       }).join('');
       return `<div class="popup-title">${p.NAME ?? 'City'}</div>
+              <div class="popup-body"><table>${rows}</table></div>`;
+    }
+
+    function ncPopupHTML(p) {
+      const money = (v) => (v == null || v <= 0) ? '—' : '$' + Math.round(v).toLocaleString();
+      const num = (v) => (v == null) ? '—' : Math.round(v).toLocaleString();
+      const rows = [
+        ['Avg home value', money(p.F2021AverageHomeValue)],
+        ['Median income', money(p.F2021MedianDisposableIncome)],
+        ['Population (2021)', num(p.F2021TotalPopulaton)],
+        ['Crime index', p.TotalCrimeIndex ?? '—'],
+        ['Tapestry segment', p.TapestrySegmentName ?? '—'],
+        ['GEOID', p.GEOID ?? '—']
+      ].map(([k, v]) => `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`).join('');
+      return `<div class="popup-title">NC Block Group</div>
               <div class="popup-body"><table>${rows}</table></div>`;
     }
   </script>
