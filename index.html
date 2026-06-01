@@ -60,11 +60,6 @@
     #legend h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #555; }
     #legend .row { display: flex; align-items: center; margin: 3px 0; }
     #legend .swatch { width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; border: 1px solid rgba(0,0,0,.2); }
-    #legend .grad {
-      height: 12px; width: 160px; border-radius: 3px; border: 1px solid rgba(0,0,0,.2);
-      background: linear-gradient(to right, #ffffcc, #a1dab4, #41b6c4, #2c7fb8, #253494);
-    }
-    #legend .grad-labels { display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-top: 2px; }
 
     /* Popup attribute table */
     .mapboxgl-popup-content {
@@ -102,8 +97,12 @@
     <div class="row" style="margin-top:8px"><span class="swatch" style="background:#f1c40f;border-radius:50%"></span>City</div>
     <div id="nc-legend">
       <h4 style="margin-top:10px">NC Avg Home Value</h4>
-      <div class="grad"></div>
-      <div class="grad-labels"><span>$100k</span><span>$520k+</span></div>
+      <div style="font-size:11px;color:#888;margin:-4px 0 4px">Jenks natural breaks (5 classes)</div>
+      <div class="row"><span class="swatch" style="background:#ffffb2"></span>$25k – $187k</div>
+      <div class="row"><span class="swatch" style="background:#fecc5c"></span>$187k – $297k</div>
+      <div class="row"><span class="swatch" style="background:#fd8d3c"></span>$297k – $451k</div>
+      <div class="row"><span class="swatch" style="background:#f03b20"></span>$451k – $739k</div>
+      <div class="row"><span class="swatch" style="background:#bd0026"></span>$739k – $1.55M</div>
     </div>
   </div>
 
@@ -189,17 +188,17 @@
         paint: { 'line-color': '#ffffff', 'line-width': 1 }
       });
 
-      // NC average home value choropleth (YlGnBu ramp; breaks ~ NC percentiles).
-      // null / non-positive values render gray.
+      // NC average home value choropleth: 5-class Jenks natural breaks,
+      // graduated light-yellow -> dark-red (YlOrRd). Null / non-positive = gray.
       const hvColor = [
         'let', 'v', ['number', ['get', 'F2021AverageHomeValue'], 0],
         ['case', ['<=', ['var', 'v'], 0], '#dddddd',
-          ['interpolate', ['linear'], ['var', 'v'],
-            100000, '#ffffcc',
-            160000, '#a1dab4',
-            225000, '#41b6c4',
-            315000, '#2c7fb8',
-            520000, '#253494']]
+          ['step', ['var', 'v'],
+            '#ffffb2',
+            187408, '#fecc5c',
+            297402, '#fd8d3c',
+            450595, '#f03b20',
+            739311, '#bd0026']]
       ];
       map.addLayer({
         id: 'nc-fill',
