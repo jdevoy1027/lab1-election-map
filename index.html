@@ -18,6 +18,17 @@
       box-shadow: 0 1px 4px rgba(0,0,0,.3);
     }
 
+    /* Layer control panel */
+    #layers {
+      position: absolute; top: 64px; left: 12px; z-index: 1;
+      background: #fff; padding: 10px 12px; border-radius: 6px;
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3); color: #222;
+    }
+    #layers h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #555; }
+    #layers label { display: flex; align-items: center; margin: 3px 0; cursor: pointer; }
+    #layers input { margin-right: 8px; }
+
     /* Legend */
     #legend {
       position: absolute; bottom: 24px; left: 12px; z-index: 1;
@@ -46,10 +57,19 @@
 <body>
   <div id="map"></div>
   <div id="title">US Election Results 2024</div>
+
+  <div id="layers">
+    <h4>Layers</h4>
+    <label><input type="checkbox" data-group="states" checked> State results</label>
+    <label><input type="checkbox" data-group="labels" checked> State labels</label>
+    <label><input type="checkbox" data-group="cities" checked> Cities</label>
+  </div>
+
   <div id="legend">
     <h4>2024 Result</h4>
     <div class="row"><span class="swatch" style="background:#3b6fb6"></span>Democratic</div>
     <div class="row"><span class="swatch" style="background:#c0392b"></span>Republican</div>
+    <div class="row" style="margin-top:8px"><span class="swatch" style="background:#f1c40f;border-radius:50%"></span>City</div>
   </div>
 
   <script>
@@ -93,6 +113,12 @@
         data: './states-labels.geojson'
       });
 
+      // Cities point layer (the second layer from the geodatabase).
+      map.addSource('cities', {
+        type: 'geojson',
+        data: './cities2020.geojson'
+      });
+
       // Fill layer (the polygons)
       map.addLayer({
         id: 'states-fill',
@@ -132,6 +158,36 @@
         }
       });
 
+      // City circles, sized by 2007 population.
+      map.addLayer({
+        id: 'cities-circles',
+        type: 'circle',
+        source: 'cities',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['get', 'POP2007'], 100000, 3, 8000000, 13],
+          'circle-color': '#f1c40f',
+          'circle-stroke-color': '#7a5c00',
+          'circle-stroke-width': 1,
+          'circle-opacity': 0.9
+        }
+      });
+
+      // City name labels.
+      map.addLayer({
+        id: 'cities-labels',
+        type: 'symbol',
+        source: 'cities',
+        layout: {
+          'text-field': ['get', 'NAME'],
+          'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+          'text-size': 11,
+          'text-offset': [0, 1.1],
+          'text-anchor': 'top',
+          'text-optional': true
+        },
+        paint: { 'text-color': '#333', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 }
+      });
+
       // Fit the map to the data once it has loaded.
       map.on('sourcedata', function fit(e) {
         if (e.sourceId !== 'states' || !e.isSourceLoaded) return;
@@ -166,6 +222,31 @@
           .setHTML(popupHTML(p))
           .addTo(map);
       });
+
+      // ── 5. City popups ─────────────────────────────────────────────────────
+      map.on('click', 'cities-circles', (e) => {
+        const p = e.features[0].properties;
+        new mapboxgl.Popup({ maxWidth: '320px' })
+          .setLngLat(e.features[0].geometry.coordinates.slice())
+          .setHTML(cityPopupHTML(p))
+          .addTo(map);
+      });
+      map.on('mouseenter', 'cities-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'cities-circles', () => { map.getCanvas().style.cursor = ''; });
+
+      // ── 6. Layer control panel toggles ─────────────────────────────────────
+      const LAYER_GROUPS = {
+        states: ['states-fill', 'states-outline'],
+        labels: ['states-labels'],
+        cities: ['cities-circles', 'cities-labels']
+      };
+      document.querySelectorAll('#layers input').forEach((cb) => {
+        cb.addEventListener('change', () => {
+          const vis = cb.checked ? 'visible' : 'none';
+          LAYER_GROUPS[cb.dataset.group].forEach((id) =>
+            map.setLayoutProperty(id, 'visibility', vis));
+        });
+      });
     });
 
     // ── helpers ────────────────────────────────────────────────────────────
@@ -193,6 +274,17 @@
         })
         .join('');
       return `<div class="popup-title">${p.STATE_NAME ?? 'Unknown'}</div>
+              <div class="popup-body"><table>${rows}</table></div>`;
+    }
+
+    function cityPopupHTML(p) {
+      const fields = [['State', 'ST'], ['Class', 'CLASS'], ['Pop. 2000', 'POP2000'], ['Pop. 2007', 'POP2007']];
+      const rows = fields.map(([lab, k]) => {
+        let v = p[k];
+        if (typeof v === 'number') v = v.toLocaleString();
+        return `<tr><td class="k">${lab}</td><td class="v">${v ?? '—'}</td></tr>`;
+      }).join('');
+      return `<div class="popup-title">${p.NAME ?? 'City'}</div>
               <div class="popup-body"><table>${rows}</table></div>`;
     }
   </script>
