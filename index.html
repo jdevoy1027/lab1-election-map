@@ -29,6 +29,9 @@
     #layers label { display: flex; align-items: center; margin: 3px 0; cursor: pointer; }
     #layers input { margin-right: 8px; }
 
+    /* Ethnicity pie markers — non-interactive so they never block the map. */
+    .pie-marker { pointer-events: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
+
     /* Collapse toggle — hidden on wide screens, the panel is always open there. */
     #layers-toggle {
       display: none; cursor: pointer; border: none; border-radius: 6px;
@@ -87,6 +90,7 @@
       <label><input type="checkbox" data-group="labels" checked> State labels</label>
       <label><input type="checkbox" data-group="cities" checked> Cities</label>
       <label><input type="checkbox" data-group="nc" checked> NC avg home value</label>
+      <label><input type="checkbox" data-group="pies"> NC ethnicity pies</label>
       <label><input type="checkbox" data-group="aerial"> Aerial photo (labeled)</label>
       <label><input type="checkbox" data-group="aerialPlain"> Aerial photo (no labels)</label>
     </div>
@@ -105,6 +109,14 @@
       <div class="row"><span class="swatch" style="background:#fd8d3c"></span>$297k – $451k</div>
       <div class="row"><span class="swatch" style="background:#f03b20"></span>$451k – $739k</div>
       <div class="row"><span class="swatch" style="background:#bd0026"></span>$739k – $1.55M</div>
+    </div>
+    <div id="eth-legend" style="display:none">
+      <h4 style="margin-top:10px">Ethnicity (pie per block group)</h4>
+      <div class="row"><span class="swatch" style="background:#1f77b4"></span>White</div>
+      <div class="row"><span class="swatch" style="background:#7e3f98"></span>Black</div>
+      <div class="row"><span class="swatch" style="background:#ff7f0e"></span>Hispanic</div>
+      <div class="row"><span class="swatch" style="background:#2ca02c"></span>Asian</div>
+      <div id="eth-hint" style="font-size:11px;color:#888;margin-top:4px"></div>
     </div>
   </div>
 
@@ -352,7 +364,44 @@
       map.on('mouseenter', 'nc-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', 'nc-fill', () => { map.getCanvas().style.cursor = ''; });
 
-      // ── 7. Layer control panel toggles ─────────────────────────────────────
+      // ── 7. NC ethnicity pie markers (one per block group, rendered for view) ─
+      // 7,243 pies can't all render at once, so we draw only those in the current
+      // viewport above a zoom threshold, capped for performance.
+      let ethData = null, ethEnabled = false, ethMarkers = [];
+      const ETH_MIN_ZOOM = 9, ETH_MAX_PIES = 250;
+
+      fetch('./nc_ethnicity.geojson').then((r) => r.json())
+        .then((j) => { ethData = j.features; updatePies(); });
+
+      function clearPies() { ethMarkers.forEach((m) => m.remove()); ethMarkers = []; }
+
+      function updatePies() {
+        clearPies();
+        const hint = document.getElementById('eth-hint');
+        if (!ethEnabled) return;
+        if (!ethData) { if (hint) hint.textContent = 'Loading…'; return; }
+        if (map.getZoom() < ETH_MIN_ZOOM) {
+          if (hint) hint.textContent = `Zoom in (≥ zoom ${ETH_MIN_ZOOM}) to see pies`;
+          return;
+        }
+        const b = map.getBounds();
+        let count = 0, capped = false;
+        for (const f of ethData) {
+          const c = f.geometry.coordinates;
+          if (!b.contains(c)) continue;
+          if (count >= ETH_MAX_PIES) { capped = true; break; }
+          const p = f.properties;
+          const el = document.createElement('div');
+          el.className = 'pie-marker';
+          el.innerHTML = pieSVG(p.w, p.b, p.h, p.a, 26);
+          ethMarkers.push(new mapboxgl.Marker({ element: el }).setLngLat(c).addTo(map));
+          count++;
+        }
+        if (hint) hint.textContent = `Showing ${count}${capped ? '+ (zoom in for the rest)' : ''} block groups`;
+      }
+      map.on('moveend', updatePies);
+
+      // ── 8. Layer control panel toggles ─────────────────────────────────────
       const LAYER_GROUPS = {
         states: ['states-fill', 'states-outline'],
         labels: ['states-labels'],
@@ -363,6 +412,13 @@
       };
       document.querySelectorAll('#layers input').forEach((cb) => {
         cb.addEventListener('change', () => {
+          // The ethnicity pies are DOM markers, not a map layer — handle separately.
+          if (cb.dataset.group === 'pies') {
+            ethEnabled = cb.checked;
+            document.getElementById('eth-legend').style.display = cb.checked ? '' : 'none';
+            updatePies();
+            return;
+          }
           const vis = cb.checked ? 'visible' : 'none';
           LAYER_GROUPS[cb.dataset.group].forEach((id) =>
             map.setLayoutProperty(id, 'visibility', vis));
@@ -425,6 +481,29 @@
       ].map(([k, v]) => `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`).join('');
       return `<div class="popup-title">NC Block Group</div>
               <div class="popup-body"><table>${rows}</table></div>`;
+    }
+
+    // Build an SVG pie of the four ethnicity shares (normalized to fill the circle).
+    // White=blue, Black=purple, Hispanic=orange, Asian=green.
+    function pieSVG(w, b, h, a, size) {
+      const slices = [[w, '#1f77b4'], [b, '#7e3f98'], [h, '#ff7f0e'], [a, '#2ca02c']];
+      const total = w + b + h + a;
+      const r = size / 2, cx = r, cy = r;
+      if (total <= 0) return '';
+      let ang = -Math.PI / 2, paths = '';
+      for (const [val, color] of slices) {
+        const frac = val / total;
+        if (frac <= 0) continue;
+        if (frac >= 0.9999) { paths = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}"/>`; break; }
+        const a2 = ang + frac * 2 * Math.PI;
+        const x1 = (cx + r * Math.cos(ang)).toFixed(2), y1 = (cy + r * Math.sin(ang)).toFixed(2);
+        const x2 = (cx + r * Math.cos(a2)).toFixed(2), y2 = (cy + r * Math.sin(a2)).toFixed(2);
+        const large = (a2 - ang) > Math.PI ? 1 : 0;
+        paths += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${color}"/>`;
+        ang = a2;
+      }
+      return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`
+        + `${paths}<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#fff" stroke-width="1"/></svg>`;
     }
   </script>
 </body>
