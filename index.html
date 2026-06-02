@@ -29,8 +29,8 @@
     #layers label { display: flex; align-items: center; margin: 3px 0; cursor: pointer; }
     #layers input { margin-right: 8px; }
 
-    /* Ethnicity pie markers — non-interactive so they never block the map. */
-    .pie-marker { pointer-events: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
+    /* Ethnicity pie markers — clickable for a percentage breakdown popup. */
+    .pie-marker { pointer-events: auto; cursor: pointer; filter: drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
 
     /* Collapse toggle — hidden on wide screens, the panel is always open there. */
     #layers-toggle {
@@ -259,6 +259,26 @@
         paint: { 'line-color': '#000000', 'line-width': 0.5, 'line-opacity': 0.5 }
       });
 
+      // Avg home value text on each NC polygon (e.g. "$261k"), shown from zoom 8.
+      map.addLayer({
+        id: 'nc-value-labels',
+        type: 'symbol',
+        source: 'nc',
+        minzoom: 8,
+        layout: {
+          'text-field': [
+            'let', 'v', ['number', ['get', 'F2021AverageHomeValue'], 0],
+            ['case', ['>', ['var', 'v'], 0],
+              ['concat', '$', ['number-format', ['/', ['var', 'v'], 1000], { 'max-fraction-digits': 0 }], 'k'],
+              '']
+          ],
+          'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9, 14, 14],
+          'text-allow-overlap': false
+        },
+        paint: { 'text-color': '#000000', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 }
+      });
+
       // State abbreviation labels, one per polygon (placed at the feature's center).
       map.addLayer({
         id: 'states-labels',
@@ -385,6 +405,8 @@
           return;
         }
         const b = map.getBounds();
+        // Pie diameter scales with zoom: ~20px at the threshold up to ~90px.
+        const size = Math.max(20, Math.min(90, Math.round(20 + (map.getZoom() - ETH_MIN_ZOOM) * 10)));
         let count = 0, capped = false;
         for (const f of ethData) {
           const c = f.geometry.coordinates;
@@ -393,7 +415,11 @@
           const p = f.properties;
           const el = document.createElement('div');
           el.className = 'pie-marker';
-          el.innerHTML = pieSVG(p.w, p.b, p.h, p.a, 52);
+          el.innerHTML = pieSVG(p.w, p.b, p.h, p.a, size);
+          el.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            new mapboxgl.Popup().setLngLat(c).setHTML(piePopupHTML(p)).addTo(map);
+          });
           ethMarkers.push(new mapboxgl.Marker({ element: el }).setLngLat(c).addTo(map));
           count++;
         }
@@ -406,7 +432,7 @@
         states: ['states-fill', 'states-outline'],
         labels: ['states-labels'],
         cities: ['cities-circles', 'cities-labels'],
-        nc: ['nc-fill', 'nc-outline'],
+        nc: ['nc-fill', 'nc-outline', 'nc-value-labels'],
         aerial: ['satellite-aerial'],
         aerialPlain: ['satellite-plain-aerial']
       };
@@ -504,6 +530,16 @@
       }
       return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`
         + `${paths}<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#fff" stroke-width="1"/></svg>`;
+    }
+
+    function piePopupHTML(p) {
+      const rows = [['White', '#1f77b4', p.w], ['Black', '#7e3f98', p.b],
+                    ['Hispanic', '#ff7f0e', p.h], ['Asian', '#2ca02c', p.a]]
+        .map(([n, c, v]) => `<tr><td class="k"><span style="display:inline-block;width:10px;height:10px;`
+          + `border-radius:2px;background:${c};margin-right:6px;vertical-align:middle"></span>${n}</td>`
+          + `<td class="v">${v}%</td></tr>`).join('');
+      return `<div class="popup-title">Ethnicity breakdown</div>
+              <div class="popup-body"><table>${rows}</table></div>`;
     }
   </script>
 </body>
