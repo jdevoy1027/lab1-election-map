@@ -87,6 +87,7 @@
       <label><input type="checkbox" data-group="labels" checked> State labels</label>
       <label><input type="checkbox" data-group="cities" checked> Cities</label>
       <label><input type="checkbox" data-group="nc" checked> NC avg home value</label>
+      <label><input type="checkbox" data-group="aerial"> Aerial photo</label>
     </div>
   </div>
 
@@ -141,6 +142,20 @@
     ];
 
     map.on('load', () => {
+      // Aerial imagery (Mapbox Satellite), added first so it sits beneath the
+      // data layers. Hidden by default; toggled via the Layers panel.
+      map.addSource('satellite', {
+        type: 'raster',
+        url: 'mapbox://mapbox.satellite',
+        tileSize: 256
+      });
+      map.addLayer({
+        id: 'satellite-aerial',
+        type: 'raster',
+        source: 'satellite',
+        layout: { visibility: 'none' }
+      });
+
       map.addSource('states', {
         type: 'geojson',
         data: './states2020.geojson',
@@ -325,7 +340,8 @@
         states: ['states-fill', 'states-outline'],
         labels: ['states-labels'],
         cities: ['cities-circles', 'cities-labels'],
-        nc: ['nc-fill', 'nc-outline']
+        nc: ['nc-fill', 'nc-outline'],
+        aerial: ['satellite-aerial']
       };
       document.querySelectorAll('#layers input').forEach((cb) => {
         cb.addEventListener('change', () => {
