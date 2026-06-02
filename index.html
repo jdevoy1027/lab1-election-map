@@ -142,12 +142,14 @@
     ];
 
     map.on('load', () => {
-      // Aerial imagery (Mapbox Satellite), added first so it sits beneath the
+      // Aerial imagery WITH labels (roads + place names), as raster tiles from
+      // Mapbox's satellite-streets style. Added first so it sits beneath the
       // data layers. Hidden by default; toggled via the Layers panel.
       map.addSource('satellite', {
         type: 'raster',
-        url: 'mapbox://mapbox.satellite',
-        tileSize: 256
+        tiles: ['https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/512/{z}/{x}/{y}?access_token=' + mapboxgl.accessToken],
+        tileSize: 512,
+        attribution: '© Mapbox © Maxar'
       });
       map.addLayer({
         id: 'satellite-aerial',
