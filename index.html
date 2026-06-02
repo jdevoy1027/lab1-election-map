@@ -87,7 +87,8 @@
       <label><input type="checkbox" data-group="labels" checked> State labels</label>
       <label><input type="checkbox" data-group="cities" checked> Cities</label>
       <label><input type="checkbox" data-group="nc" checked> NC avg home value</label>
-      <label><input type="checkbox" data-group="aerial"> Aerial photo</label>
+      <label><input type="checkbox" data-group="aerial"> Aerial photo (labeled)</label>
+      <label><input type="checkbox" data-group="aerialPlain"> Aerial photo (no labels)</label>
     </div>
   </div>
 
@@ -155,6 +156,20 @@
         id: 'satellite-aerial',
         type: 'raster',
         source: 'satellite',
+        layout: { visibility: 'none' }
+      });
+
+      // Plain aerial imagery (no labels) — a separate toggle.
+      map.addSource('satellite-plain', {
+        type: 'raster',
+        url: 'mapbox://mapbox.satellite',
+        tileSize: 256,
+        attribution: '© Mapbox © Maxar'
+      });
+      map.addLayer({
+        id: 'satellite-plain-aerial',
+        type: 'raster',
+        source: 'satellite-plain',
         layout: { visibility: 'none' }
       });
 
@@ -343,7 +358,8 @@
         labels: ['states-labels'],
         cities: ['cities-circles', 'cities-labels'],
         nc: ['nc-fill', 'nc-outline'],
-        aerial: ['satellite-aerial']
+        aerial: ['satellite-aerial'],
+        aerialPlain: ['satellite-plain-aerial']
       };
       document.querySelectorAll('#layers input').forEach((cb) => {
         cb.addEventListener('change', () => {
