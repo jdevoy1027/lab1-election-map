@@ -405,8 +405,8 @@
           return;
         }
         const b = map.getBounds();
-        // Pie diameter scales with zoom: ~20px at the threshold up to ~90px.
-        const size = Math.max(20, Math.min(90, Math.round(20 + (map.getZoom() - ETH_MIN_ZOOM) * 10)));
+        // Pie diameter scales with zoom (~20px at the threshold up to ~90px), then 30% smaller.
+        const size = Math.round(0.7 * Math.max(20, Math.min(90, 20 + (map.getZoom() - ETH_MIN_ZOOM) * 10)));
         let count = 0, capped = false;
         for (const f of ethData) {
           const c = f.geometry.coordinates;
