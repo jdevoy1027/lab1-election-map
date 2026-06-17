@@ -516,18 +516,6 @@
             }
             await Promise.all(jobs);
           }
-          // Downscale to a sane max dimension and encode as JPEG — PNG in jsPDF is
-          // extremely slow for large (Retina) canvases and can appear to hang.
-          const MAXPX = 2400;
-          const scale = Math.min(1, MAXPX / Math.max(W, H));
-          let out = comp;
-          if (scale < 1) {
-            out = document.createElement('canvas');
-            out.width = Math.round(W * scale); out.height = Math.round(H * scale);
-            out.getContext('2d').drawImage(comp, 0, 0, out.width, out.height);
-          }
-          const mapUrl = out.toDataURL('image/jpeg', 0.92);
-
           // 3. Compose the PDF (size + orientation from the controls).
           const pageFmt = document.getElementById('pdf-size').value;    // 'letter' | 'a4'
           const orient = document.getElementById('pdf-orient').value;   // 'landscape' | 'portrait'
@@ -578,22 +566,27 @@
           // Pin the legend flush to the bottom margin (last line ~5mm from the edge).
           const legendTop = legLines ? (pageH - 11 - (legLines - 1) * lineH) : (pageH - 6);
 
-          // Map frame — full width, using all space above the legend.
-          const mapY = 28, ar = W / H;
-          const availW = pageW - mar * 2, availH = legendTop - 3 - mapY;
-          let iw = availW, ih = iw / ar;
-          if (ih > availH) { ih = availH; iw = ih * ar; }
-          const ix = mar + (availW - iw) / 2, iy = mapY;
-          pdf.addImage(mapUrl, 'JPEG', ix, iy, iw, ih);
-          pdf.setDrawColor(60); pdf.setLineWidth(0.3); pdf.rect(ix, iy, iw, ih);
+          // Map frame — fill the entire area above the legend (cover-crop: no blank space).
+          const mapY = 28;
+          const boxX = mar, boxY = mapY, boxW = pageW - mar * 2, boxH = legendTop - 3 - mapY;
+          const boxAR = boxW / boxH, srcAR = W / H;
+          let cropW, cropH, sx, sy;
+          if (srcAR > boxAR) { cropH = H; cropW = H * boxAR; sx = (W - cropW) / 2; sy = 0; }   // crop sides
+          else { cropW = W; cropH = W / boxAR; sx = 0; sy = (H - cropH) / 2; }                  // crop top/bottom
+          const MAXPX = 2400, sc = Math.min(1, MAXPX / Math.max(cropW, cropH));
+          const out = document.createElement('canvas');
+          out.width = Math.round(cropW * sc); out.height = Math.round(cropH * sc);
+          out.getContext('2d').drawImage(comp, sx, sy, cropW, cropH, 0, 0, out.width, out.height);
+          pdf.addImage(out.toDataURL('image/jpeg', 0.92), 'JPEG', boxX, boxY, boxW, boxH);
+          pdf.setDrawColor(60); pdf.setLineWidth(0.3); pdf.rect(boxX, boxY, boxW, boxH);
 
           // Scale bar with the north arrow directly above it (bottom-left of map).
           const lat = map.getCenter().lat;
           const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom());
-          const mPerMm = mpp * cssW / iw;
+          const mPerMm = mpp * (cropW / dpr) / boxW;
           const miles = niceRound(50 * mPerMm / 1609.344);
           const barMm = miles * 1609.344 / mPerMm;
-          const sbx = ix + 6, sby = iy + ih - 8, nax = sbx + barMm / 2;
+          const sbx = boxX + 6, sby = boxY + boxH - 8, nax = sbx + barMm / 2;
           pdf.setFillColor(255, 255, 255); pdf.setDrawColor(150); pdf.setLineWidth(0.2);
           pdf.rect(sbx - 4, sby - 21, Math.max(barMm, 16) + 8, 27, 'FD');     // backdrop
           pdf.setFillColor(26, 26, 46);                                       // north arrow (above bar)
