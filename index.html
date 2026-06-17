@@ -538,6 +538,8 @@
           pdf.text('North Carolina Hinterland', pageW / 2, 14, { align: 'center' });
           pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(110);
           pdf.text(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }), pageW / 2, 19.5, { align: 'center' });
+          pdf.setFontSize(7.5); pdf.setTextColor(120);
+          pdf.text('© Mapbox · © Maxar · Demographics: Esri / US Census · geonomics.us', pageW / 2, 24, { align: 'center' });
 
           // Legend groups for the visible layers.
           const groups = [];
@@ -573,10 +575,11 @@
             return lines;
           };
           const legLines = groups.length ? flow(0, false) : 0;
-          const legendTop = pageH - 6 - (legLines ? (legLines - 1) * lineH + 8 : 0);
+          // Pin the legend flush to the bottom margin (last line ~5mm from the edge).
+          const legendTop = legLines ? (pageH - 11 - (legLines - 1) * lineH) : (pageH - 6);
 
           // Map frame — full width, using all space above the legend.
-          const mapY = 25, ar = W / H;
+          const mapY = 28, ar = W / H;
           const availW = pageW - mar * 2, availH = legendTop - 3 - mapY;
           let iw = availW, ih = iw / ar;
           if (ih > availH) { ih = availH; iw = ih * ar; }
@@ -610,10 +613,6 @@
             pdf.setDrawColor(200); pdf.setLineWidth(0.2); pdf.line(mar, legendTop, pageW - mar, legendTop);
             pdf.setFontSize(8.5); flow(legendTop + 6, true);
           }
-
-          // Footer
-          pdf.setFontSize(7); pdf.setTextColor(120);
-          pdf.text('© Mapbox  © Maxar  ·  Demographics: Esri / US Census  ·  geonomics.us', mar, pageH - 4);
 
           pdf.save('north-carolina-hinterland.pdf');
         } catch (e) {
