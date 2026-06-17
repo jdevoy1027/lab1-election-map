@@ -533,61 +533,83 @@
           const orient = document.getElementById('pdf-orient').value;   // 'landscape' | 'portrait'
           const pdf = new window.jspdf.jsPDF({ orientation: orient, unit: 'mm', format: pageFmt });
           const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
-          const mar = 10, legendW = 60;
+          const mar = 10;
           pdf.setFont('helvetica', 'bold'); pdf.setFontSize(20); pdf.setTextColor(26, 26, 46);
           pdf.text('North Carolina Hinterland', pageW / 2, 14, { align: 'center' });
           pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(110);
           pdf.text(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }), pageW / 2, 19.5, { align: 'center' });
 
-          // Map frame (fit, preserve aspect ratio)
-          const mapX = mar, mapY = 25, boxW = pageW - mar * 2 - legendW - 4, boxH = pageH - mapY - mar;
-          const ar = W / H; let iw = boxW, ih = iw / ar;
-          if (ih > boxH) { ih = boxH; iw = ih * ar; }
-          pdf.addImage(mapUrl, 'JPEG', mapX, mapY, iw, ih);
-          pdf.setDrawColor(60); pdf.setLineWidth(0.3); pdf.rect(mapX, mapY, iw, ih);
+          // Legend groups for the visible layers.
+          const groups = [];
+          if (layerVisible('states-fill')) groups.push(['2024 Result', [{ color: '#3b6fb6', label: 'Democratic' }, { color: '#c0392b', label: 'Republican' }]]);
+          if (layerVisible('nc-fill')) groups.push(['NC Avg Home Value', [
+            { color: '#ffffb2', label: '$25–187k' }, { color: '#fecc5c', label: '$187–297k' }, { color: '#fd8d3c', label: '$297–451k' },
+            { color: '#f03b20', label: '$451–739k' }, { color: '#bd0026', label: '$739k–1.55M' }]]);
+          if (ethEnabled) groups.push(['Ethnicity', [{ color: '#1f77b4', label: 'White' }, { color: '#7e3f98', label: 'Black' }, { color: '#ff7f0e', label: 'Hispanic' }, { color: '#2ca02c', label: 'Asian' }]]);
+          if (layerVisible('cities-circles')) groups.push(['Cities', [{ color: '#f1c40f', label: 'City', round: true }]]);
 
-          // North arrow (top-right of map)
-          const nax = mapX + iw - 9, nay = mapY + 6;
-          pdf.setFillColor(26, 26, 46); pdf.triangle(nax, nay, nax - 3, nay + 9, nax + 3, nay + 9, 'F');
-          pdf.setFontSize(10); pdf.setTextColor(26, 26, 46); pdf.text('N', nax, nay + 15, { align: 'center' });
+          // Horizontal legend flow; runs once to measure line count, once to draw —
+          // so the map can claim every mm not needed by the legend.
+          const lineH = 5.2;
+          pdf.setFontSize(8.5);
+          const flow = (startY, draw) => {
+            let lx = mar, ly = startY, lines = 1;
+            const ensure = (w) => { if (lx + w > pageW - mar) { lx = mar; ly += lineH; lines++; } };
+            for (const [title, items] of groups) {
+              pdf.setFont('helvetica', 'bold'); const tw = pdf.getTextWidth(title + ':') + 2.5; ensure(tw + 18);
+              if (draw) { pdf.setTextColor(60); pdf.text(title + ':', lx, ly); }
+              lx += tw; pdf.setFont('helvetica', 'normal');
+              for (const it of items) {
+                const w = 5 + pdf.getTextWidth(it.label) + 5; ensure(w);
+                if (draw) {
+                  const [r, g, b] = hx(it.color); pdf.setFillColor(r, g, b); pdf.setDrawColor(150);
+                  if (it.round) pdf.circle(lx + 1.5, ly - 1.1, 1.6, 'FD'); else pdf.rect(lx, ly - 2.9, 3.2, 3.2, 'FD');
+                  pdf.setTextColor(40); pdf.text(it.label, lx + 5, ly);
+                }
+                lx += w;
+              }
+              lx += 5;
+            }
+            return lines;
+          };
+          const legLines = groups.length ? flow(0, false) : 0;
+          const legendTop = pageH - 6 - (legLines ? (legLines - 1) * lineH + 8 : 0);
 
-          // Scale bar (bottom-left of map)
+          // Map frame — full width, using all space above the legend.
+          const mapY = 25, ar = W / H;
+          const availW = pageW - mar * 2, availH = legendTop - 3 - mapY;
+          let iw = availW, ih = iw / ar;
+          if (ih > availH) { ih = availH; iw = ih * ar; }
+          const ix = mar + (availW - iw) / 2, iy = mapY;
+          pdf.addImage(mapUrl, 'JPEG', ix, iy, iw, ih);
+          pdf.setDrawColor(60); pdf.setLineWidth(0.3); pdf.rect(ix, iy, iw, ih);
+
+          // Scale bar with the north arrow directly above it (bottom-left of map).
           const lat = map.getCenter().lat;
-          const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom()); // m / CSS px
+          const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom());
           const mPerMm = mpp * cssW / iw;
           const miles = niceRound(50 * mPerMm / 1609.344);
           const barMm = miles * 1609.344 / mPerMm;
-          const sbx = mapX + 5, sby = mapY + ih - 7;
-          pdf.setFillColor(255, 255, 255); pdf.rect(sbx - 2, sby - 5, barMm + 4, 10, 'F');
-          pdf.setDrawColor(0); pdf.setLineWidth(0.3);
+          const sbx = ix + 6, sby = iy + ih - 8, nax = sbx + barMm / 2;
+          pdf.setFillColor(255, 255, 255); pdf.setDrawColor(150); pdf.setLineWidth(0.2);
+          pdf.rect(sbx - 4, sby - 21, Math.max(barMm, 16) + 8, 27, 'FD');     // backdrop
+          pdf.setFillColor(26, 26, 46);                                       // north arrow (above bar)
+          pdf.triangle(nax, sby - 18, nax - 3, sby - 10, nax + 3, sby - 10, 'F');
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(26, 26, 46);
+          pdf.text('N', nax, sby - 4.5, { align: 'center' });
+          pdf.setDrawColor(0); pdf.setLineWidth(0.3);                         // scale bar
           pdf.setFillColor(0, 0, 0); pdf.rect(sbx, sby, barMm / 2, 1.8, 'F');
           pdf.setFillColor(255, 255, 255); pdf.rect(sbx + barMm / 2, sby, barMm / 2, 1.8, 'FD');
           pdf.rect(sbx, sby, barMm, 1.8, 'S');
-          pdf.setFontSize(7.5); pdf.setTextColor(0);
-          pdf.text('0', sbx, sby - 1.5, { align: 'center' });
-          pdf.text(miles + ' mi', sbx + barMm, sby - 1.5, { align: 'center' });
+          pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7); pdf.setTextColor(0);
+          pdf.text('0', sbx, sby + 4.5, { align: 'center' });
+          pdf.text(miles + ' mi', sbx + barMm, sby + 4.5, { align: 'center' });
 
-          // Legend (right column, reflects visible layers)
-          let lx = pageW - mar - legendW, ly = mapY;
-          pdf.setDrawColor(180); pdf.setFillColor(255, 255, 255); pdf.rect(lx, ly, legendW, boxH, 'FD');
-          lx += 4; ly += 8;
-          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.setTextColor(40);
-          pdf.text('Legend', lx, ly); ly += 6.5;
-          pdf.setFontSize(8.5);
-          const head = (t) => { pdf.setFont('helvetica', 'bold'); pdf.setTextColor(60); pdf.text(t, lx, ly); ly += 4.5; pdf.setFont('helvetica', 'normal'); pdf.setTextColor(40); };
-          const swatch = (color, label, round) => {
-            const [r, g, b] = hx(color); pdf.setFillColor(r, g, b); pdf.setDrawColor(150);
-            if (round) pdf.circle(lx + 2, ly - 1.4, 1.8, 'FD'); else pdf.rect(lx, ly - 3.2, 4, 4, 'FD');
-            pdf.setTextColor(40); pdf.text(label, lx + 6, ly); ly += 5;
-          };
-          if (layerVisible('states-fill')) { head('2024 Result'); swatch('#3b6fb6', 'Democratic'); swatch('#c0392b', 'Republican'); ly += 1.5; }
-          if (layerVisible('nc-fill')) {
-            head('NC Avg Home Value');
-            swatch('#ffffb2', '$25k – $187k'); swatch('#fecc5c', '$187k – $297k'); swatch('#fd8d3c', '$297k – $451k');
-            swatch('#f03b20', '$451k – $739k'); swatch('#bd0026', '$739k – $1.55M'); ly += 1.5;
+          // Separator + draw the legend.
+          if (legLines) {
+            pdf.setDrawColor(200); pdf.setLineWidth(0.2); pdf.line(mar, legendTop, pageW - mar, legendTop);
+            pdf.setFontSize(8.5); flow(legendTop + 6, true);
           }
-          if (ethEnabled) { head('Ethnicity (pie)'); swatch('#1f77b4', 'White'); swatch('#7e3f98', 'Black'); swatch('#ff7f0e', 'Hispanic'); swatch('#2ca02c', 'Asian'); ly += 1.5; }
-          if (layerVisible('cities-circles')) { head('Cities'); swatch('#f1c40f', 'City', true); }
 
           // Footer
           pdf.setFontSize(7); pdf.setTextColor(120);
