@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Joe99 — Layer Loader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    #map { position: absolute; inset: 0; }
+
+    #panel {
+      position: absolute; top: 12px; left: 12px; z-index: 1; width: 250px;
+      background: #fff; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.3);
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #222;
+      overflow: hidden;
+    }
+    #panel h3 { margin: 0; padding: 10px 12px; background: #1a1a2e; color: #fff; font-size: 14px; }
+    #panel .body { padding: 10px 12px; }
+    #add-btn {
+      width: 100%; cursor: pointer; border: none; border-radius: 4px;
+      background: #2d6cdf; color: #fff; padding: 9px; font: 600 13px inherit;
+    }
+    #add-btn:hover { background: #2257b8; }
+    .hint { font-size: 11px; color: #888; margin: 8px 0 4px; }
+    #layer-list { margin-top: 6px; }
+    #layer-list:empty::after { content: "No layers yet."; color: #aaa; font-size: 12px; }
+    .lyr-row { display: flex; align-items: center; gap: 7px; padding: 4px 0; border-top: 1px solid #eee; }
+    .lyr-row .chip { width: 13px; height: 13px; border-radius: 3px; border: 1px solid rgba(0,0,0,.2); flex: none; }
+    .lyr-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lyr-row .rm { border: none; background: none; color: #c0392b; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+    .lyr-row input { flex: none; }
+
+    /* drag-over highlight */
+    #map.drag::after {
+      content: "Drop GeoJSON to add a layer"; position: absolute; inset: 0; z-index: 2;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(45,108,223,.12); border: 3px dashed #2d6cdf; box-sizing: border-box;
+      font: 600 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #2257b8;
+    }
+
+    .mapboxgl-popup-content { font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; padding: 0; border-radius: 6px; overflow: hidden; max-width: 280px; }
+    .pp-title { background: #1a1a2e; color: #fff; padding: 7px 10px; font-weight: 600; }
+    .pp-body { padding: 6px 10px; max-height: 220px; overflow: auto; }
+    .pp-body table { border-collapse: collapse; width: 100%; }
+    .pp-body td { padding: 2px 5px; vertical-align: top; }
+    .pp-body td.k { color: #666; white-space: nowrap; }
+    .pp-body td.v { font-weight: 600; text-align: right; word-break: break-word; }
+    .pp-body tr:nth-child(even) { background: #f4f4f8; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="panel">
+    <h3>Joe99 — Layer Loader</h3>
+    <div class="body">
+      <button id="add-btn">+ Add GeoJSON layer</button>
+      <div class="hint">…or drag a .geojson / .json file onto the map.</div>
+      <input id="file-input" type="file" accept=".geojson,.json,application/geo+json,application/json" multiple hidden />
+      <div id="layer-list"></div>
+    </div>
+  </div>
+
+  <script>
+    // Public Mapbox token (base64), URL-restricted to jdevoy1027.github.io + http://localhost:8011.
+    mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGNIZzJPV05sZFRBM2NtRXljWEV5ZVdoak9HWjZaWEFpZlEuYnNnam1STm1HWTZXX2pseVQ0Nnk4Zw==');
+
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/light-v11',
+      projection: 'mercator',
+      center: [-96, 38],
+      zoom: 3.4
+    });
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: 'imperial' }), 'bottom-right');
+
+    const COLORS = ['#e6194B', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#469990', '#9A6324', '#808000'];
+    const added = {};          // id -> { name, color, sourceId, layerIds: [] }
+    let seq = 0;
+    const listEl = document.getElementById('layer-list');
+
+    // ── Normalize any GeoJSON to a FeatureCollection ───────────────────────────
+    function toFC(gj) {
+      if (gj && gj.type === 'FeatureCollection') return gj;
+      if (gj && gj.type === 'Feature') return { type: 'FeatureCollection', features: [gj] };
+      if (gj && gj.type && gj.coordinates) return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: gj }] };
+      throw new Error('Not valid GeoJSON (need a FeatureCollection, Feature, or geometry).');
+    }
+
+    function boundsOf(fc) {
+      const b = new mapboxgl.LngLatBounds();
+      const walk = (c) => { if (typeof c[0] === 'number') b.extend(c); else c.forEach(walk); };
+      fc.features.forEach((f) => { const g = f.geometry; if (g && g.coordinates) walk(g.coordinates); });
+      return b;
+    }
+
+    // ── Add a parsed GeoJSON object as a new map layer ─────────────────────────
+    function addGeoJSON(name, gj) {
+      const fc = toFC(gj);
+      const types = new Set();
+      fc.features.forEach((f) => { if (f.geometry) types.add(f.geometry.type); });
+      const hasPoly = types.has('Polygon') || types.has('MultiPolygon');
+      const hasLine = types.has('LineString') || types.has('MultiLineString');
+      const hasPoint = types.has('Point') || types.has('MultiPoint');
+      if (!hasPoly && !hasLine && !hasPoint) throw new Error('No drawable geometry found.');
+
+      const color = COLORS[seq % COLORS.length];
+      const sid = 'src' + seq, base = 'lyr' + seq; seq++;
+      map.addSource(sid, { type: 'geojson', data: fc });
+      const layerIds = [];
+      const poly = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false];
+      const line = ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false];
+      const point = ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false];
+
+      if (hasPoly) {
+        map.addLayer({ id: base + '-fill', type: 'fill', source: sid, filter: poly, paint: { 'fill-color': color, 'fill-opacity': 0.4 } });
+        map.addLayer({ id: base + '-poutline', type: 'line', source: sid, filter: poly, paint: { 'line-color': color, 'line-width': 1.5 } });
+        layerIds.push(base + '-fill', base + '-poutline');
+      }
+      if (hasLine) {
+        map.addLayer({ id: base + '-line', type: 'line', source: sid, filter: line, paint: { 'line-color': color, 'line-width': 2.5 } });
+        layerIds.push(base + '-line');
+      }
+      if (hasPoint) {
+        map.addLayer({ id: base + '-point', type: 'circle', source: sid, filter: point, paint: { 'circle-color': color, 'circle-radius': 5, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
+        layerIds.push(base + '-point');
+      }
+
+      // Click popups + cursor for every layer of this source.
+      layerIds.forEach((id) => {
+        map.on('click', id, (e) => {
+          const p = e.features[0].properties || {};
+          const rows = Object.keys(p).map((k) => `<tr><td class="k">${k}</td><td class="v">${p[k]}</td></tr>`).join('')
+            || '<tr><td class="k">(no properties)</td></tr>';
+          new mapboxgl.Popup({ maxWidth: '300px' }).setLngLat(e.lngLat)
+            .setHTML(`<div class="pp-title">${name}</div><div class="pp-body"><table>${rows}</table></div>`).addTo(map);
+        });
+        map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
+      });
+
+      added[sid] = { name, color, sourceId: sid, layerIds };
+      renderList();
+      const b = boundsOf(fc);
+      if (!b.isEmpty()) map.fitBounds(b, { padding: 40, maxZoom: 14, duration: 600 });
+    }
+
+    function removeLayer(sid) {
+      const a = added[sid];
+      if (!a) return;
+      a.layerIds.forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
+      if (map.getSource(sid)) map.removeSource(sid);
+      delete added[sid];
+      renderList();
+    }
+
+    function renderList() {
+      listEl.innerHTML = '';
+      Object.values(added).forEach((a) => {
+        const row = document.createElement('div'); row.className = 'lyr-row';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
+        cb.onchange = () => a.layerIds.forEach((id) => map.setLayoutProperty(id, 'visibility', cb.checked ? 'visible' : 'none'));
+        const chip = document.createElement('span'); chip.className = 'chip'; chip.style.background = a.color;
+        const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = a.name; nm.title = a.name;
+        const rm = document.createElement('button'); rm.className = 'rm'; rm.textContent = '×'; rm.title = 'Remove'; rm.onclick = () => removeLayer(a.sourceId);
+        row.append(cb, chip, nm, rm);
+        listEl.appendChild(row);
+      });
+    }
+
+    // ── File handling: button + drag/drop ─────────────────────────────────────
+    function readFiles(files) {
+      [...files].forEach((file) => {
+        const r = new FileReader();
+        r.onload = () => {
+          try { addGeoJSON(file.name, JSON.parse(r.result)); }
+          catch (err) { alert(`Could not add "${file.name}": ${err.message}`); }
+        };
+        r.readAsText(file);
+      });
+    }
+
+    const fileInput = document.getElementById('file-input');
+    document.getElementById('add-btn').onclick = () => fileInput.click();
+    fileInput.onchange = () => { readFiles(fileInput.files); fileInput.value = ''; };
+
+    const mapEl = document.getElementById('map');
+    ['dragenter', 'dragover'].forEach((ev) => mapEl.addEventListener(ev, (e) => { e.preventDefault(); mapEl.classList.add('drag'); }));
+    ['dragleave', 'drop'].forEach((ev) => mapEl.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'drop' || e.target === mapEl) mapEl.classList.remove('drag'); }));
+    mapEl.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files.length) readFiles(e.dataTransfer.files); });
+  </script>
+</body>
+</html>
