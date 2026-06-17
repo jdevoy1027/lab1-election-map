@@ -35,6 +35,8 @@
       font: 600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     }
     #export-pdf:disabled { opacity: .6; cursor: default; }
+    .pdf-opts { display: flex; gap: 6px; margin-top: 9px; }
+    .pdf-opts select { flex: 1; font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; padding: 3px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
 
     /* Ethnicity pie markers — clickable for a percentage breakdown popup. */
     .pie-marker { pointer-events: auto; cursor: pointer; filter: drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
@@ -100,6 +102,16 @@
       <label><input type="checkbox" data-group="pies"> NC ethnicity pies</label>
       <label><input type="checkbox" data-group="aerial"> Aerial photo (labeled)</label>
       <label><input type="checkbox" data-group="aerialPlain"> Aerial photo (no labels)</label>
+      <div class="pdf-opts">
+        <select id="pdf-size" title="Page size">
+          <option value="letter">Letter</option>
+          <option value="a4">A4</option>
+        </select>
+        <select id="pdf-orient" title="Orientation">
+          <option value="landscape">Landscape</option>
+          <option value="portrait">Portrait</option>
+        </select>
+      </div>
       <button id="export-pdf" title="Export the current view as a PDF map">⬇ Export PDF</button>
     </div>
   </div>
@@ -504,14 +516,19 @@
           }
           const mapUrl = comp.toDataURL('image/png');
 
-          // 3. Compose the PDF (A4 landscape, mm).
-          const pdf = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-          const pageW = 297, pageH = 210, mar = 10, legendW = 60;
+          // 3. Compose the PDF (size + orientation from the controls).
+          const pageFmt = document.getElementById('pdf-size').value;    // 'letter' | 'a4'
+          const orient = document.getElementById('pdf-orient').value;   // 'landscape' | 'portrait'
+          const pdf = new window.jspdf.jsPDF({ orientation: orient, unit: 'mm', format: pageFmt });
+          const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
+          const mar = 10, legendW = 60;
           pdf.setFont('helvetica', 'bold'); pdf.setFontSize(20); pdf.setTextColor(26, 26, 46);
-          pdf.text('North Carolina Hinterland', pageW / 2, 15, { align: 'center' });
+          pdf.text('North Carolina Hinterland', pageW / 2, 14, { align: 'center' });
+          pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(110);
+          pdf.text(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }), pageW / 2, 19.5, { align: 'center' });
 
           // Map frame (fit, preserve aspect ratio)
-          const mapX = mar, mapY = 22, boxW = pageW - mar * 2 - legendW - 4, boxH = pageH - mapY - mar;
+          const mapX = mar, mapY = 25, boxW = pageW - mar * 2 - legendW - 4, boxH = pageH - mapY - mar;
           const ar = W / H; let iw = boxW, ih = iw / ar;
           if (ih > boxH) { ih = boxH; iw = ih * ar; }
           pdf.addImage(mapUrl, 'PNG', mapX, mapY, iw, ih);
