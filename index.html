@@ -514,7 +514,17 @@
             }
             await Promise.all(jobs);
           }
-          const mapUrl = comp.toDataURL('image/png');
+          // Downscale to a sane max dimension and encode as JPEG — PNG in jsPDF is
+          // extremely slow for large (Retina) canvases and can appear to hang.
+          const MAXPX = 2400;
+          const scale = Math.min(1, MAXPX / Math.max(W, H));
+          let out = comp;
+          if (scale < 1) {
+            out = document.createElement('canvas');
+            out.width = Math.round(W * scale); out.height = Math.round(H * scale);
+            out.getContext('2d').drawImage(comp, 0, 0, out.width, out.height);
+          }
+          const mapUrl = out.toDataURL('image/jpeg', 0.92);
 
           // 3. Compose the PDF (size + orientation from the controls).
           const pageFmt = document.getElementById('pdf-size').value;    // 'letter' | 'a4'
@@ -531,7 +541,7 @@
           const mapX = mar, mapY = 25, boxW = pageW - mar * 2 - legendW - 4, boxH = pageH - mapY - mar;
           const ar = W / H; let iw = boxW, ih = iw / ar;
           if (ih > boxH) { ih = boxH; iw = ih * ar; }
-          pdf.addImage(mapUrl, 'PNG', mapX, mapY, iw, ih);
+          pdf.addImage(mapUrl, 'JPEG', mapX, mapY, iw, ih);
           pdf.setDrawColor(60); pdf.setLineWidth(0.3); pdf.rect(mapX, mapY, iw, ih);
 
           // North arrow (top-right of map)
