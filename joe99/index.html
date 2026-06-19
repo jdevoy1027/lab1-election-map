@@ -27,11 +27,16 @@
     .hint { font-size: 11px; color: #888; margin: 8px 0 4px; }
     #layer-list { margin-top: 6px; }
     #layer-list:empty::after { content: "No layers yet."; color: #aaa; font-size: 12px; }
-    .lyr-row { display: flex; align-items: center; gap: 7px; padding: 4px 0; border-top: 1px solid #eee; }
-    .lyr-row .chip { width: 17px; height: 17px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); flex: none; padding: 0; background: none; cursor: pointer; }
-    .lyr-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lyr-row .rm { border: none; background: none; color: #c0392b; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
-    .lyr-row input { flex: none; }
+    .lyr-row { padding: 6px 0; border-top: 1px solid #eee; }
+    .lyr-top { display: flex; align-items: center; gap: 7px; }
+    .lyr-top .chip { width: 17px; height: 17px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); flex: none; padding: 0; background: none; cursor: pointer; }
+    .lyr-top .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lyr-top .rm { border: none; background: none; color: #c0392b; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; flex: none; }
+    .lyr-top input { flex: none; }
+    .lyr-ctl { display: flex; align-items: center; gap: 5px; margin-top: 5px; }
+    .lyr-ctl .lab { font-size: 10px; color: #888; flex: none; }
+    .lyr-ctl input[type=range] { flex: 1; min-width: 0; }
+    .lyr-ctl .szin { width: 44px; flex: none; }
 
     /* drag-over highlight */
     #map.drag::after {
@@ -143,7 +148,10 @@
         map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
       });
 
-      added[sid] = { name, color, sourceId: sid, layerIds };
+      const pointOnly = hasPoint && !hasLine && !hasPoly;
+      added[sid] = { name, color, sourceId: sid, layerIds, opacity: 0.7, size: pointOnly ? 5 : (hasLine ? 2.5 : 2) };
+      setLayerOpacity(added[sid], added[sid].opacity);
+      setLayerSize(added[sid], added[sid].size);
       renderList();
       const b = boundsOf(fc);
       if (!b.isEmpty()) map.fitBounds(b, { padding: 40, maxZoom: 14, duration: 600 });
@@ -169,16 +177,47 @@
       });
     }
 
+    // Opacity (0–1) across a loaded source's layers.
+    function setLayerOpacity(a, v) {
+      a.opacity = v;
+      a.layerIds.forEach((id) => {
+        const t = map.getLayer(id) && map.getLayer(id).type;
+        if (t === 'fill') map.setPaintProperty(id, 'fill-opacity', v);
+        else if (t === 'line') map.setPaintProperty(id, 'line-opacity', v);
+        else if (t === 'circle') { map.setPaintProperty(id, 'circle-opacity', v); map.setPaintProperty(id, 'circle-stroke-opacity', v); }
+      });
+    }
+
+    // Line width / point radius across a loaded source's layers.
+    function setLayerSize(a, n) {
+      a.size = n;
+      a.layerIds.forEach((id) => {
+        const t = map.getLayer(id) && map.getLayer(id).type;
+        if (t === 'line') map.setPaintProperty(id, 'line-width', n);
+        else if (t === 'circle') map.setPaintProperty(id, 'circle-radius', n);
+      });
+    }
+
     function renderList() {
       listEl.innerHTML = '';
       Object.values(added).forEach((a) => {
         const row = document.createElement('div'); row.className = 'lyr-row';
+        const top = document.createElement('div'); top.className = 'lyr-top';
         const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
         cb.onchange = () => a.layerIds.forEach((id) => map.setLayoutProperty(id, 'visibility', cb.checked ? 'visible' : 'none'));
         const chip = document.createElement('input'); chip.type = 'color'; chip.className = 'chip'; chip.value = a.color; chip.title = 'Layer color'; chip.oninput = () => setLayerColor(a, chip.value);
         const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = a.name; nm.title = a.name;
         const rm = document.createElement('button'); rm.className = 'rm'; rm.textContent = '×'; rm.title = 'Remove'; rm.onclick = () => removeLayer(a.sourceId);
-        row.append(cb, chip, nm, rm);
+        top.append(cb, chip, nm, rm);
+
+        const ctl = document.createElement('div'); ctl.className = 'lyr-ctl';
+        const opLab = document.createElement('span'); opLab.className = 'lab'; opLab.textContent = 'Op';
+        const op = document.createElement('input'); op.type = 'range'; op.min = 0; op.max = 1; op.step = 0.05; op.value = a.opacity; op.title = 'Opacity'; op.oninput = () => setLayerOpacity(a, +op.value);
+        const szLab = document.createElement('span'); szLab.className = 'lab'; szLab.textContent = 'W';
+        const sz = document.createElement('input'); sz.type = 'number'; sz.className = 'szin'; sz.min = 0.5; sz.max = 20; sz.step = 0.5; sz.value = a.size; sz.title = 'Line width / point size'; sz.oninput = () => setLayerSize(a, +sz.value);
+        ctl.append(opLab, op, szLab, sz);
+
+        row.append(top, ctl);
         listEl.appendChild(row);
       });
     }
