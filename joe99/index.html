@@ -28,7 +28,7 @@
     #layer-list { margin-top: 6px; }
     #layer-list:empty::after { content: "No layers yet."; color: #aaa; font-size: 12px; }
     .lyr-row { display: flex; align-items: center; gap: 7px; padding: 4px 0; border-top: 1px solid #eee; }
-    .lyr-row .chip { width: 13px; height: 13px; border-radius: 3px; border: 1px solid rgba(0,0,0,.2); flex: none; }
+    .lyr-row .chip { width: 17px; height: 17px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); flex: none; padding: 0; background: none; cursor: pointer; }
     .lyr-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lyr-row .rm { border: none; background: none; color: #c0392b; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
     .lyr-row input { flex: none; }
@@ -158,13 +158,24 @@
       renderList();
     }
 
+    // Recolor every layer belonging to a loaded source (fill / line / circle).
+    function setLayerColor(a, color) {
+      a.color = color;
+      a.layerIds.forEach((id) => {
+        const t = map.getLayer(id) && map.getLayer(id).type;
+        if (t === 'fill') map.setPaintProperty(id, 'fill-color', color);
+        else if (t === 'line') map.setPaintProperty(id, 'line-color', color);
+        else if (t === 'circle') map.setPaintProperty(id, 'circle-color', color);
+      });
+    }
+
     function renderList() {
       listEl.innerHTML = '';
       Object.values(added).forEach((a) => {
         const row = document.createElement('div'); row.className = 'lyr-row';
         const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
         cb.onchange = () => a.layerIds.forEach((id) => map.setLayoutProperty(id, 'visibility', cb.checked ? 'visible' : 'none'));
-        const chip = document.createElement('span'); chip.className = 'chip'; chip.style.background = a.color;
+        const chip = document.createElement('input'); chip.type = 'color'; chip.className = 'chip'; chip.value = a.color; chip.title = 'Layer color'; chip.oninput = () => setLayerColor(a, chip.value);
         const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = a.name; nm.title = a.name;
         const rm = document.createElement('button'); rm.className = 'rm'; rm.textContent = '×'; rm.title = 'Remove'; rm.onclick = () => removeLayer(a.sourceId);
         row.append(cb, chip, nm, rm);
